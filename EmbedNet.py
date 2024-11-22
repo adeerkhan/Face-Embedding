@@ -62,43 +62,47 @@ class ModelTrainer(object):
 
     def train_network(self, loader):
 
-        self.__model__.train();
+        self.__model__.train()
 
-        stepsize = loader.batch_size;
+        stepsize = loader.batch_size
 
-        counter = 0;
-        loss    = 0;
+        counter = 0
+        loss = 0
 
         with tqdm(loader, unit="batch") as tepoch:
-        
+
             for data, label in tepoch:
 
                 tepoch.total = tepoch.__len__()
 
-                data    = data.transpose(1,0)
+                data = data.transpose(1, 0)
 
                 ## Reset gradients
-                # (write your code here)
+                self.__optimizer__.zero_grad()
 
                 ## Forward pass and compute loss
                 nloss = self.__model__(data.cuda(), label.cuda())
+
                 ## Backward pass
-                # (write your code here)
+                nloss.backward()
+
                 ## Optimizer step
-                # (write your code here)
+                self.__optimizer__.step()
 
                 ## Keep cumulative statistics
-                loss    += # (write your code here)
-                counter += 1;
+                loss += nloss.item()
+                counter += 1
 
                 # Print statistics to progress bar
-                tepoch.set_postfix(loss=loss/counter)
+                tepoch.set_postfix(loss=loss / counter)
 
-                if self.lr_step == 'iteration': self.__scheduler__.step()
+                if self.lr_step == 'iteration':
+                    self.__scheduler__.step()
 
-            if self.lr_step == 'epoch': self.__scheduler__.step()
-        
-        return (loss/counter);
+            if self.lr_step == 'epoch':
+                self.__scheduler__.step()
+
+        return loss / counter
 
 
     ## ===== ===== ===== ===== ===== ===== ===== =====
@@ -153,7 +157,7 @@ class ModelTrainer(object):
             com_feat = feats[data[2]]
 
             ## Find cosine similarity score
-            score = # (write your code here)
+            score = F.cosine_similarity(ref_feat, com_feat, dim=0)
 
             all_scores.append(score.item());  
             all_labels.append(int(data[0]));
