@@ -110,17 +110,15 @@ class ModelTrainer(object):
     ## ===== ===== ===== ===== ===== ===== ===== =====
 
     def evaluateFromList(self, test_list, test_path, nDataLoaderThread, transform, print_interval=100, num_eval=10, **kwargs):
-        
-        self.__model__.eval();
-        
-        feats       = {}
+        self.__model__.eval()
+        feats = {}
 
         ## Read all lines
         with open(test_list) as f:
             lines = f.readlines()
 
         ## Get a list of unique file names
-        files = sum([x.strip().split(',')[-2:] for x in lines],[])
+        files = sum([x.strip().split(',')[-2:] for x in lines], [])
         setfiles = list(set(files))
         setfiles.sort()
 
@@ -138,29 +136,29 @@ class ModelTrainer(object):
 
         ## Extract features for every image
         for data in tqdm(test_loader):
-            inp1                = data[0][0].cuda()
-            ref_feat            = self.__model__(inp1).detach().cpu()
-            feats[data[1][0]]   = ref_feat
+            inp1 = data[0][0].cuda()  # Shape: [num_eval, C, H, W]
+            with torch.no_grad():
+                ref_feat = self.__model__(inp1).detach().cpu()  # Shape: [num_eval, embedding_size]
+            ref_feat = torch.mean(ref_feat, dim=0)  # Shape: [embedding_size]
+            feats[data[1][0]] = ref_feat
 
-        all_scores = [];
-        all_labels = [];
+        all_scores = []
+        all_labels = []
         all_trials = []
 
         print('Computing similarities')
 
         ## Read files and compute all scores
         for line in tqdm(lines):
+            data = line.strip().split(',')
 
-            data = line.strip().split(',');
-
-            ref_feat = feats[data[1]]
-            com_feat = feats[data[2]]
+            ref_feat = feats[data[1]]  # Shape: [embedding_size]
+            com_feat = feats[data[2]]  # Shape: [embedding_size]
 
             ## Find cosine similarity score
             score = F.cosine_similarity(ref_feat, com_feat, dim=0)
-
-            all_scores.append(score.item());  
-            all_labels.append(int(data[0]));
+            all_scores.append(score.item())
+            all_labels.append(int(data[0]))
             all_trials.append(data[1] + "," + data[2])
 
         return (all_scores, all_labels, all_trials)

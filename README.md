@@ -50,3 +50,5 @@ The input transformations can be changed in the code.
 ### Inference
 
 In order to save pairwise similarity scores to file, use `--output` flag.
+
+python ./trainEmbedNet.py --gpu 0 --train_path data/ee488_24_data/train1 --test_path data/ee488_24_data/val --test_list data/ee488_24_data/val_pairs.csv --save_path ./exps/exp01.
