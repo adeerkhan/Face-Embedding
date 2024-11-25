@@ -89,15 +89,14 @@ class ModelTrainer(object):
                 ## Optimizer step
                 self.__optimizer__.step()
 
+                if self.lr_step == 'iteration':
+                    self.__scheduler__.step()
                 ## Keep cumulative statistics
                 loss += nloss.item()
                 counter += 1
 
                 # Print statistics to progress bar
                 tepoch.set_postfix(loss=loss / counter)
-
-                if self.lr_step == 'iteration':
-                    self.__scheduler__.step()
 
             if self.lr_step == 'epoch':
                 self.__scheduler__.step()
