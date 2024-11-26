@@ -51,4 +51,6 @@ The input transformations can be changed in the code.
 
 In order to save pairwise similarity scores to file, use `--output` flag.
 
-python ./trainEmbedNet.py --gpu 0 --train_path data/ee488_24_data/train1 --test_path data/ee488_24_data/val --test_list data/ee488_24_data/val_pairs.csv --save_path ./exps/exp01 --optimizer adopt.
+python ./trainEmbedNet.py --gpu 0 --train_path data/ee488_24_data/train1 --test_path data/ee488_24_data/val --test_list data/ee488_24_data/val_pairs.csv --save_path ./exps/train1/exp01 --optimizer adopt --batch_size 250
+
+python ./trainEmbedNet.py --gpu 0 --train_path data/ee488_24_data/train2 --test_path data/ee488_24_data/val --test_list data/ee488_24_data/val_pairs.csv --save_path ./exps/train2/exp01 --optimizer adopt --batch_size 250
