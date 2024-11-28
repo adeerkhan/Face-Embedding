@@ -42,17 +42,21 @@ class EmbedNet(nn.Module):
 
 class ModelTrainer(object):
 
-    def __init__(self, embed_model, optimizer, scheduler, **kwargs):
+    def __init__(self, embed_model, optimizer, scheduler, mixedprec, **kwargs):
 
         self.__model__  = embed_model
 
         ## Optimizer (e.g. Adam or SGD)
         Optimizer = importlib.import_module('optimizer.'+optimizer).__getattribute__('Optimizer')
         self.__optimizer__ = Optimizer(self.__model__.parameters(), **kwargs)
-        
+
         ## Learning rate scheduler
         Scheduler = importlib.import_module('scheduler.'+scheduler).__getattribute__('Scheduler')
         self.__scheduler__, self.lr_step = Scheduler(self.__optimizer__, **kwargs)
+
+        ## For mixed precision training
+        self.scaler = GradScaler() 
+        self.mixedprec = mixedprec
 
         assert self.lr_step in ['epoch', 'iteration']
 
@@ -62,46 +66,49 @@ class ModelTrainer(object):
 
     def train_network(self, loader):
 
-        self.__model__.train()
+        self.__model__.train();
 
-        stepsize = loader.batch_size
+        stepsize = loader.batch_size;
 
-        counter = 0
-        loss = 0
+        counter = 0;
+        index   = 0;
+        loss    = 0;
 
         with tqdm(loader, unit="batch") as tepoch:
-
+        
             for data, label in tepoch:
 
                 tepoch.total = tepoch.__len__()
 
-                data = data.transpose(1, 0)
+                data    = data.transpose(1,0)
 
                 ## Reset gradients
-                self.__optimizer__.zero_grad()
+                self.__model__.zero_grad();
 
-                ## Forward pass and compute loss
-                nloss = self.__model__(data.cuda(), label.cuda())
+                ## Forward and backward passes
+                if self.mixedprec:
+                    with autocast():
+                        nloss = self.__model__(data.cuda(), label.cuda())
+                    self.scaler.scale(nloss).backward();
+                    self.scaler.step(self.__optimizer__);
+                    self.scaler.update();       
+                else:
+                    nloss = self.__model__(data.cuda(), label.cuda())
+                    nloss.backward();
+                    self.__optimizer__.step();
 
-                ## Backward pass
-                nloss.backward()
-
-                ## Optimizer step
-                self.__optimizer__.step()
-
-                if self.lr_step == 'iteration':
-                    self.__scheduler__.step()
-                ## Keep cumulative statistics
-                loss += nloss.item()
-                counter += 1
+                loss    += nloss.detach().cpu().item();
+                counter += 1;
+                index   += stepsize;
 
                 # Print statistics to progress bar
-                tepoch.set_postfix(loss=loss / counter)
+                tepoch.set_postfix(loss=loss/counter)
 
-            if self.lr_step == 'epoch':
-                self.__scheduler__.step()
+                if self.lr_step == 'iteration': self.__scheduler__.step()
 
-        return loss / counter
+            if self.lr_step == 'epoch': self.__scheduler__.step()
+        
+        return (loss/counter);
 
 
     ## ===== ===== ===== ===== ===== ===== ===== =====
@@ -109,15 +116,17 @@ class ModelTrainer(object):
     ## ===== ===== ===== ===== ===== ===== ===== =====
 
     def evaluateFromList(self, test_list, test_path, nDataLoaderThread, transform, print_interval=100, num_eval=10, **kwargs):
-        self.__model__.eval()
-        feats = {}
+        
+        self.__model__.eval();
+        
+        feats       = {}
 
         ## Read all lines
         with open(test_list) as f:
             lines = f.readlines()
 
         ## Get a list of unique file names
-        files = sum([x.strip().split(',')[-2:] for x in lines], [])
+        files = sum([x.strip().split(',')[-2:] for x in lines],[])
         setfiles = list(set(files))
         setfiles.sort()
 
@@ -135,29 +144,28 @@ class ModelTrainer(object):
 
         ## Extract features for every image
         for data in tqdm(test_loader):
-            inp1 = data[0][0].cuda()  # Shape: [num_eval, C, H, W]
-            with torch.no_grad():
-                ref_feat = self.__model__(inp1).detach().cpu()  # Shape: [num_eval, embedding_size]
-            ref_feat = torch.mean(ref_feat, dim=0)  # Shape: [embedding_size]
-            feats[data[1][0]] = ref_feat
+            inp1                = data[0][0].cuda()
+            ref_feat            = self.__model__(inp1).detach().cpu()
+            feats[data[1][0]]   = ref_feat
 
-        all_scores = []
-        all_labels = []
+        all_scores = [];
+        all_labels = [];
         all_trials = []
 
         print('Computing similarities')
 
         ## Read files and compute all scores
         for line in tqdm(lines):
-            data = line.strip().split(',')
 
-            ref_feat = feats[data[1]]  # Shape: [embedding_size]
-            com_feat = feats[data[2]]  # Shape: [embedding_size]
+            data = line.strip().split(',');
 
-            ## Find cosine similarity score
-            score = F.cosine_similarity(ref_feat, com_feat, dim=0)
-            all_scores.append(score.item())
-            all_labels.append(int(data[0]))
+            ref_feat = feats[data[1]]
+            com_feat = feats[data[2]]
+
+            score = F.cosine_similarity(ref_feat, com_feat)
+
+            all_scores.append(score.item());  
+            all_labels.append(int(data[0]));
             all_trials.append(data[1] + "," + data[2])
 
         return (all_scores, all_labels, all_trials)
@@ -192,4 +200,3 @@ class ModelTrainer(object):
                 continue;
 
             self_state[name].copy_(param);
-

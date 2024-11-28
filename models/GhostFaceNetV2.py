@@ -61,28 +61,27 @@ class ConvBnAct(nn.Module):
         return x
 
 class ModifiedGDC(nn.Module):
-    def __init__(self, image_size, in_chs, num_classes, dropout, emb=512): #embedding = 512 from original code
+    def __init__(self, image_size, in_chs, num_classes, dropout, emb=512):
         super(ModifiedGDC, self).__init__()
         self.dropout = dropout
-
-        self.conv_dw = nn.Conv2d(in_chs, in_chs, kernel_size=1,groups=in_chs, bias=False)
+        self.num_classes = num_classes
+        self.conv_dw = nn.Conv2d(in_chs, in_chs, kernel_size=1, groups=in_chs, bias=False)
         self.bn1 = nn.BatchNorm2d(in_chs)
         self.conv = nn.Conv2d(in_chs, emb, kernel_size=1, bias=False)
-        nn.init.xavier_normal_(self.conv.weight.data) #initialize weight
-
-        if image_size % 32 == 0:
-            flattened_features = emb*((image_size//32)**2)
-        else:
-            flattened_features = emb*((image_size//32 + 1)**2)
-
-        self.bn2 = nn.BatchNorm1d(flattened_features)
-        self.linear = nn.Linear(flattened_features, num_classes) if num_classes else nn.Identity()
+        nn.init.xavier_normal_(self.conv.weight.data)
+        self.flattened_features = None  # Defer initialization
 
     def forward(self, x):
         x = self.conv_dw(x)
         x = self.bn1(x)
         x = self.conv(x)
-        x = x.view(x.size(0), -1) #flatten
+
+        if self.flattened_features is None:  # Dynamically initialize
+            self.flattened_features = x.shape[1] * x.shape[2] * x.shape[3]
+            self.bn2 = nn.BatchNorm1d(self.flattened_features)
+            self.linear = nn.Linear(self.flattened_features, self.num_classes)
+
+        x = x.view(x.size(0), -1)
         if self.dropout > 0.:
             x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.bn2(x)

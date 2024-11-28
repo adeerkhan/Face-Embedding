@@ -144,5 +144,3 @@ def get_data_loader(batch_size, max_img_per_cls, nDataLoaderThread, nPerClass, t
     )
     
     return train_loader
-
-

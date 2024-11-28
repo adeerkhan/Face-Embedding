@@ -58,12 +58,17 @@ parser.add_argument('--test_list', type=str, default="data/val_pairs.csv", help=
 parser.add_argument('--model', type=str, default="ResNet18", help='Name of model definition')
 parser.add_argument('--nOut', type=int, default=512, help='Embedding size in the last FC layer')
 
+parser.add_argument('--width',         type=int,   default=1);
+parser.add_argument('--dropout',       type=float, default=0.0);
+parser.add_argument('--image_size',    type=int,   default=256);
+
 ## For test only
 parser.add_argument('--eval', dest='eval', action='store_true', help='Eval only')
 parser.add_argument('--output', type=str, default="", help='Save a log of output to this file name')
 
 ## Training
-parser.add_argument('--gpu', type=int, default=9, help='GPU index')
+parser.add_argument('--mixedprec',      dest='mixedprec',   action='store_true', help='Enable mixed precision training')
+parser.add_argument('--gpu', type=int, default=0, help='GPU index')
 
 args = parser.parse_args()
 
@@ -112,8 +117,8 @@ def main_worker(args):
     train_transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Resize(256),
-            transforms.RandomCrop([224, 224]),
+            transforms.Resize(args.image_size),
+            transforms.RandomCrop([args.image_size - 32, args.image_size - 32]),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
@@ -122,8 +127,8 @@ def main_worker(args):
     test_transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Resize(256),
-            transforms.CenterCrop([224, 224]),
+            transforms.Resize(args.image_size),
+            transforms.CenterCrop([args.image_size - 32, args.image_size - 32]),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
