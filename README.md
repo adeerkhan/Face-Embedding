@@ -51,18 +51,65 @@ The input transformations can be changed in the code.
 
 In order to save pairwise similarity scores to file, use `--output` flag.
 
+## Train1
 python ./trainEmbedNet.py \
   --gpu 0 \
   --train_path data/ee488_24_data/train1 \
   --test_path data/ee488_24_data/val \
   --test_list data/ee488_24_data/val_pairs.csv \
-  --nClasses 8639 \
-  --save_path ./exps/train1/exp02 \
+  --nClasses 2882 \
+  --save_path ./exps/train1/exp03 \
+  --optimizer adamw \
+  --scheduler cosinelr \
+  --batch_size 330 \
+  --trainfunc arcface \
+  --image_size 256 \
+  --lr 0.0001 \
+  --max_epoch 50 \
+  --nOut 1024 \
+  --margin 0.1 \
+  --scale 30
+
+## Better results
+python ./trainEmbedNet.py \
+  --gpu 0 \
+  --train_path data/ee488_24_data/train1 \
+  --test_path data/ee488_24_data/val \
+  --test_list data/ee488_24_data/val_pairs.csv \
+  --nClasses 2882 \
+  --save_path ./exps/train1/exp05 \
+  --optimizer adopt \
+  --scheduler steplr \
+  --batch_size 150 \
+  --trainfunc arcface \
+  --image_size 256 \
+  --lr 0.001 \
+  --lr_decay 0.9 \
+  --max_epoch 100 \
+  --nOut 1024 \
+  --margin 0.1 \
+  --scale 30
+  --width 1
+  --model GhostFaceNetsV2
+
+## Train 2
+python ./trainEmbedNet.py \
+  --gpu 0 \
+  --save_path exps/train2/exp02 \
+  --initial_model exps/epoch0015.model \
+  --train_path data/ee488_24_data/train2 \
+  --test_path data/ee488_24_data/val \
+  --test_list data/ee488_24_data/val_pairs.csv \
+  --nClasses 1230 \
+  --max_epoch 50 \
   --optimizer adopt \
   --batch_size 330 \
   --trainfunc arcface \
   --image_size 256 \
-  --max_epoch 20 \
   --nOut 1024
 
 python ./trainEmbedNet.py --gpu 0 --train_path data/ee488_24_data/train2 --test_path data/ee488_24_data/val --test_list data/ee488_24_data/val_pairs.csv --save_path ./exps/train2/exp01 --optimizer adopt --batch_size 250 --model GhostFaceNetV2 --trainfunc arcface 
+
+Notes:
+-Train1: --nClasses 2882
+-Train2: --nClasses 1230

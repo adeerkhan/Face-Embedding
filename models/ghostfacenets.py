@@ -61,32 +61,46 @@ class ConvBnAct(nn.Module):
         return x
 
 class ModifiedGDC(nn.Module):
-    def __init__(self, image_size, in_chs, num_classes, dropout, emb=512):
+    def __init__(self, image_size, in_chs, num_classes, dropout, emb=512): 
         super(ModifiedGDC, self).__init__()
-        self.dropout = dropout
+        
+        self.image_size = image_size
+        self.in_chs = in_chs
         self.num_classes = num_classes
-        self.conv_dw = nn.Conv2d(in_chs, in_chs, kernel_size=1, groups=in_chs, bias=False)
+        self.dropout_rate = dropout
+        self.emb = emb
+
+        # Initialize layers
+        self.conv_dw = None  # To be initialized dynamically
         self.bn1 = nn.BatchNorm2d(in_chs)
+        self.dropout = nn.Dropout(dropout)
         self.conv = nn.Conv2d(in_chs, emb, kernel_size=1, bias=False)
-        nn.init.xavier_normal_(self.conv.weight.data)
-        self.flattened_features = None  # Defer initialization
+        self.bn2 = nn.BatchNorm1d(emb)
+        self.linear = nn.Linear(emb, num_classes) if num_classes else nn.Identity()
 
     def forward(self, x):
+        # Dynamically calculate kernel size
+        h, w = x.shape[-2:]
+        kernel_size = min(h, w)  # Ensure kernel size is no larger than the smallest spatial dimension
+        if kernel_size % 2 == 0:  # Kernel size must be odd
+            kernel_size -= 1
+
+        # Initialize depth-wise convolution dynamically if necessary
+        if self.conv_dw is None or self.conv_dw.kernel_size[0] != kernel_size:
+            self.conv_dw = nn.Conv2d(
+                self.in_chs, self.in_chs, kernel_size=kernel_size, groups=self.in_chs, bias=False
+            ).to(x.device)  # Ensure it matches the input tensor's device
+
+        # Forward pass
         x = self.conv_dw(x)
         x = self.bn1(x)
+        x = self.dropout(x)
         x = self.conv(x)
-
-        if self.flattened_features is None:  # Dynamically initialize
-            self.flattened_features = x.shape[1] * x.shape[2] * x.shape[3]
-            self.bn2 = nn.BatchNorm1d(self.flattened_features)
-            self.linear = nn.Linear(self.flattened_features, self.num_classes)
-
-        x = x.view(x.size(0), -1)
-        if self.dropout > 0.:
-            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = x.view(x.size(0), -1)  # Flatten
         x = self.bn2(x)
         x = self.linear(x)
         return x
+
     
 class GhostModuleV2(nn.Module):
     def __init__(self, inp, oup, kernel_size=1, ratio=2, dw_size=3, stride=1, prelu=True,mode=None,args=None):
@@ -197,11 +211,34 @@ class GhostBottleneckV2(nn.Module):
         return x
 
    
-class GhostFaceNetV2(nn.Module):
-    def __init__(self, cfgs, image_size=256, num_classes=1000, width=1.0, channels=3, dropout=0.2, block=GhostBottleneckV2,
-                 add_pointwise_conv=False, args=None):
-        super(GhostFaceNetV2, self).__init__()
-        self.cfgs = cfgs
+class GhostFaceNetsV2(nn.Module):
+    def __init__(self, cfgs=None, image_size=256, num_classes=0, width=1.0, channels=3, dropout=0.2, block=GhostBottleneckV2,
+                 add_pointwise_conv=False, bn_momentum=0.9, bn_epsilon=1e-5, init_kaiming=True, args=None):
+        super(GhostFaceNetsV2, self).__init__()
+        if cfgs == None:
+            self.cfgs =  [
+                # k, t, c, SE, s 
+                [[3,  16,  16, 0, 1]],
+                [[3,  48,  24, 0, 2]],
+                [[3,  72,  24, 0, 1]],
+                [[5,  72,  40, 0.25, 2]],
+                [[5, 120,  40, 0.25, 1]],
+                [[3, 240,  80, 0, 2]],
+                [[3, 200,  80, 0, 1],
+                 [3, 184,  80, 0, 1],
+                 [3, 184,  80, 0, 1],
+                 [3, 480, 112, 0.25, 1],
+                 [3, 672, 112, 0.25, 1]
+                ],
+                [[5, 672, 160, 0.25, 2]],
+                [[5, 960, 160, 0, 1],
+                 [5, 960, 160, 0.25, 1],
+                 [5, 960, 160, 0, 1],
+                 [5, 960, 160, 0.25, 1]
+                ]
+            ]
+        else:
+            self.cfgs = cfgs
 
         # building first layer
         output_channel = _make_divisible(16 * width, 4)
@@ -242,6 +279,16 @@ class GhostFaceNetV2(nn.Module):
         self.pointwise_conv = nn.Sequential(*pointwise_conv)
         self.classifier = ModifiedGDC(image_size, output_channel, num_classes, dropout)
 
+        # Initialize weights
+        for m in self.modules():
+            if init_kaiming:
+                if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
+                    negative_slope = 0.25  # Default value for PReLU in PyTorch, change it if you use custom value
+                    m.weight.data.normal_(0, math.sqrt(2. / (fan_in * (1 + negative_slope ** 2))))
+            if isinstance(m, nn.BatchNorm2d):
+                m.momentum, m.eps = bn_momentum, bn_epsilon
+
     def forward(self, x):
         x = self.conv_stem(x)
         x = self.bn1(x)
@@ -250,38 +297,3 @@ class GhostFaceNetV2(nn.Module):
         x = self.pointwise_conv(x)
         x = self.classifier(x)
         return x
-
-def MainModel(bn_momentum=0.9, bn_epsilon=1e-5, num_classes=256, channels=3, **kwargs):
-    cfgs = [   
-        # k, t, c, SE, s 
-        [[3,  16,  16, 0, 1]],
-        [[3,  48,  24, 0, 2]],
-        [[3,  72,  24, 0, 1]],
-        [[5,  72,  40, 0.25, 2]],
-        [[5, 120,  40, 0.25, 1]],
-        [[3, 240,  80, 0, 2]],
-        [[3, 200,  80, 0, 1],
-         [3, 184,  80, 0, 1],
-         [3, 184,  80, 0, 1],
-         [3, 480, 112, 0.25, 1],
-         [3, 672, 112, 0.25, 1]
-        ],
-        [[5, 672, 160, 0.25, 2]],
-        [[5, 960, 160, 0, 1],
-         [5, 960, 160, 0.25, 1],
-         [5, 960, 160, 0, 1],
-         [5, 960, 160, 0.25, 1]
-        ]
-    ]
-
-    GhostFaceNet = GhostFaceNetV2(cfgs, image_size=kwargs['image_size'],
-                                  num_classes=num_classes,
-                                  channels=channels,
-                                  width=kwargs['width'],
-                                  dropout=kwargs['dropout'])
-
-    for module in GhostFaceNet.modules():
-        if isinstance(module, nn.BatchNorm2d):
-            module.momentum, module.eps = bn_momentum, bn_epsilon
-
-    return GhostFaceNet

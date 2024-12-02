@@ -34,15 +34,15 @@ parser.add_argument('--trainfunc', type=str, default="softmax", help='Loss funct
 ## Optimizer
 parser.add_argument('--optimizer', type=str, default="adam", help='Optimizer')
 parser.add_argument('--scheduler', type=str, default="steplr", help='Learning rate scheduler')
-parser.add_argument('--lr', type=float, default=0.001, help='Initial learning rate')
+parser.add_argument('--lr', type=float, default=0.0001, help='Initial learning rate')
 parser.add_argument("--lr_decay", type=float, default=0.90, help='Learning rate decay every [test_interval] epochs')
 parser.add_argument('--weight_decay', type=float, default=0, help='Weight decay in the optimizer')
 
 ## Loss functions
-parser.add_argument('--margin', type=float, default=0.1, help='Loss margin, only for some loss functions')
-parser.add_argument('--scale', type=float, default=30, help='Loss scale, only for some loss functions')
+parser.add_argument('--margin', type=float, default=0.05, help='Loss margin, only for some loss functions')
+parser.add_argument('--scale', type=float, default=15, help='Loss scale, only for some loss functions')
 parser.add_argument('--nPerClass', type=int, default=1, help='Number of images per class per batch, only for metric learning based losses')
-parser.add_argument('--nClasses', type=int, default=9500, help='Number of classes in the softmax layer, only for softmax-based losses')
+parser.add_argument('--nClasses', type=int, default=2882, help='Number of classes in the softmax layer, only for softmax-based losses')
 
 ## Load and save
 parser.add_argument('--initial_model', type=str, default="", help='Initial model weights, otherwise initialise with random weights')
@@ -55,7 +55,7 @@ parser.add_argument('--test_path', type=str, default="data/val", help='Absolute 
 parser.add_argument('--test_list', type=str, default="data/val_pairs.csv", help='Evaluation list')
 
 ## Model definition
-parser.add_argument('--model', type=str, default="ResNet18", help='Name of model definition')
+parser.add_argument('--model', type=str, default="GhostFaceNetsV2", help='Name of model definition')
 parser.add_argument('--nOut', type=int, default=512, help='Embedding size in the last FC layer')
 
 parser.add_argument('--width',         type=int,   default=1);
