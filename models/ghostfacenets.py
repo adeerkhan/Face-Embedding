@@ -63,7 +63,7 @@ class ConvBnAct(nn.Module):
 class ModifiedGDC(nn.Module):
     def __init__(self, image_size, in_chs, num_classes, dropout, emb=512): 
         super(ModifiedGDC, self).__init__()
-        
+
         self.image_size = image_size
         self.in_chs = in_chs
         self.num_classes = num_classes
@@ -75,7 +75,7 @@ class ModifiedGDC(nn.Module):
         self.bn1 = nn.BatchNorm2d(in_chs)
         self.dropout = nn.Dropout(dropout)
         self.conv = nn.Conv2d(in_chs, emb, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm1d(emb)
+        self.bn2 = nn.BatchNorm1d(emb)  # Ensure emb matches nOut
         self.linear = nn.Linear(emb, num_classes) if num_classes else nn.Identity()
 
     def forward(self, x):
@@ -96,10 +96,11 @@ class ModifiedGDC(nn.Module):
         x = self.bn1(x)
         x = self.dropout(x)
         x = self.conv(x)
-        x = x.view(x.size(0), -1)  # Flatten
-        x = self.bn2(x)
+        x = x.mean([2, 3])  # Global average pooling over spatial dimensions
+        x = self.bn2(x)     # Apply batch normalization
         x = self.linear(x)
         return x
+
 
     
 class GhostModuleV2(nn.Module):
@@ -213,9 +214,9 @@ class GhostBottleneckV2(nn.Module):
    
 class GhostFaceNetsV2(nn.Module):
     def __init__(self, cfgs=None, image_size=256, num_classes=0, width=1.0, channels=3, dropout=0.2, block=GhostBottleneckV2,
-                 add_pointwise_conv=False, bn_momentum=0.9, bn_epsilon=1e-5, init_kaiming=True, args=None):
+                 add_pointwise_conv=False, bn_momentum=0.9, bn_epsilon=1e-5, init_kaiming=True, args=None, nOut=512):
         super(GhostFaceNetsV2, self).__init__()
-        if cfgs == None:
+        if cfgs is None:
             self.cfgs =  [
                 # k, t, c, SE, s 
                 [[3,  16,  16, 0, 1]],
@@ -240,51 +241,40 @@ class GhostFaceNetsV2(nn.Module):
         else:
             self.cfgs = cfgs
 
-        # building first layer
+        # Building first layer
         output_channel = _make_divisible(16 * width, 4)
         self.conv_stem = nn.Conv2d(channels, output_channel, 3, 2, 1, bias=False)
         self.bn1 = nn.BatchNorm2d(output_channel)
         self.act1 = nn.PReLU()
         input_channel = output_channel
 
-        # building inverted residual blocks
+        # Building inverted residual blocks
         stages = []
-        layer_id=0
+        layer_id = 0
         for cfg in self.cfgs:
             layers = []
             for k, exp_size, c, se_ratio, s in cfg:
                 output_channel = _make_divisible(c * width, 4)
                 hidden_channel = _make_divisible(exp_size * width, 4)
-                if block==GhostBottleneckV2:
+                if block == GhostBottleneckV2:
                     layers.append(block(input_channel, hidden_channel, output_channel, k, s,
-                                  se_ratio=se_ratio,layer_id=layer_id,args=args))
+                                  se_ratio=se_ratio, layer_id=layer_id, args=args))
                 input_channel = output_channel
-                layer_id+=1
+                layer_id += 1
             stages.append(nn.Sequential(*layers))
 
         output_channel = _make_divisible(exp_size * width, 4)
         stages.append(nn.Sequential(ConvBnAct(input_channel, output_channel, 1)))
-        
-        self.blocks = nn.Sequential(*stages)        
 
-        # building last several layers
-        pointwise_conv = []
-        if add_pointwise_conv:
-            pointwise_conv.append(nn.Conv2d(input_channel, output_channel, 1, 1, 0, bias=True))
-            pointwise_conv.append(nn.BatchNorm2d(output_channel))
-            pointwise_conv.append(nn.PReLU())
-        else:
-            pointwise_conv.append(nn.Sequential())
-
-        self.pointwise_conv = nn.Sequential(*pointwise_conv)
-        self.classifier = ModifiedGDC(image_size, output_channel, num_classes, dropout)
+        self.blocks = nn.Sequential(*stages)
+        self.output_channel = output_channel  # Save output_channel for use in classifier
 
         # Initialize weights
         for m in self.modules():
             if init_kaiming:
                 if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
                     fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
-                    negative_slope = 0.25  # Default value for PReLU in PyTorch, change it if you use custom value
+                    negative_slope = 0.25  # Default value for PReLU in PyTorch
                     m.weight.data.normal_(0, math.sqrt(2. / (fan_in * (1 + negative_slope ** 2))))
             if isinstance(m, nn.BatchNorm2d):
                 m.momentum, m.eps = bn_momentum, bn_epsilon
@@ -294,6 +284,22 @@ class GhostFaceNetsV2(nn.Module):
         x = self.bn1(x)
         x = self.act1(x)
         x = self.blocks(x)
+        # Do not include the classifier here
+        return x
+    
+# Define the classifier separately
+class ClassifierModule(nn.Module):
+    def __init__(self, in_chs, nOut=512, dropout=0.2, image_size=256):
+        super(ClassifierModule, self).__init__()
+        self.pointwise_conv = nn.Sequential(
+            nn.Conv2d(in_chs, in_chs, 1, 1, 0, bias=True),
+            nn.BatchNorm2d(in_chs),
+            nn.PReLU()
+        )
+        self.classifier = ModifiedGDC(image_size, in_chs, num_classes=0, dropout=dropout, emb=nOut)
+
+    def forward(self, x):
         x = self.pointwise_conv(x)
         x = self.classifier(x)
         return x
+

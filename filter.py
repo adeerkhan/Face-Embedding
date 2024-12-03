@@ -3,8 +3,10 @@ import torch
 from sklearn.metrics.pairwise import cosine_similarity
 from pathlib import Path
 from tqdm import tqdm
+from PIL import Image
+from torchvision import transforms
 
-# Load pre-trained embeddings from Train1
+# Load pre-trained embeddings from `train1`
 train1_embeddings = np.load("train1_embeddings.npy")
 
 # Directory paths
@@ -15,18 +17,14 @@ Path(filtered_dir).mkdir(parents=True, exist_ok=True)
 # Confidence threshold for filtering
 threshold = 0.7
 
-# Load the model checkpoint (from Train1)
-checkpoint_path = "exps/train1/exp01/epoch0015.model"
-model = EmbedNet(model="ResNet18", nOut=512).cuda()  # Ensure nOut matches Train1
+# Load the model checkpoint (same as used for generating train1 embeddings)
+checkpoint_path = "./exps/train1/exp05/epoch0020.model"
+model = EmbedNet(model="GhostFaceNetsV2", nOut=1024).cuda()
 model.load_state_dict(torch.load(checkpoint_path))
 model.eval()
 
 # Function to extract embeddings
 def extract_embedding(img_path, model):
-    from PIL import Image
-    from torchvision import transforms
-
-    # Preprocess image
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
         transforms.ToTensor(),
@@ -34,13 +32,11 @@ def extract_embedding(img_path, model):
     ])
     image = Image.open(img_path).convert("RGB")
     image = transform(image).unsqueeze(0).cuda()
-
-    # Extract embedding
     with torch.no_grad():
         embedding = model(image).cpu().numpy()
     return embedding
 
-# Filter Train2 images
+# Filter `train2` images
 filtered_images = []
 for img_path in tqdm(Path(train2_dir).rglob("*.jpg")):
     embedding = extract_embedding(str(img_path), model)
@@ -48,7 +44,7 @@ for img_path in tqdm(Path(train2_dir).rglob("*.jpg")):
     if sim.max() > threshold:  # Keep confident samples
         filtered_images.append(str(img_path))
 
-        # Copy or symlink filtered images to filtered_dir
+        # Copy or symlink filtered images to `filtered_dir`
         new_path = str(img_path).replace(train2_dir, filtered_dir)
         Path(new_path).parent.mkdir(parents=True, exist_ok=True)
         Path(new_path).symlink_to(img_path)

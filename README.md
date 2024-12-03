@@ -95,18 +95,22 @@ python ./trainEmbedNet.py \
 ## Train 2
 python ./trainEmbedNet.py \
   --gpu 0 \
-  --save_path exps/train2/exp02 \
-  --initial_model exps/epoch0015.model \
+  --save_path exps/train2/turn_exp01 \
+  --initial_model exps/train1/exp05/epoch0020.model \
   --train_path data/ee488_24_data/train2 \
   --test_path data/ee488_24_data/val \
   --test_list data/ee488_24_data/val_pairs.csv \
   --nClasses 1230 \
-  --max_epoch 50 \
   --optimizer adopt \
   --batch_size 330 \
-  --trainfunc arcface \
+  --trainfunc gce \
   --image_size 256 \
-  --nOut 1024
+  --nOut 1024 \
+  --nPerClass 1 \
+  --max_img_per_cls 500 \
+  --elp_epochs 15 \
+  --efft_epochs 35 \
+  --max_epoch 50
 
 python ./trainEmbedNet.py --gpu 0 --train_path data/ee488_24_data/train2 --test_path data/ee488_24_data/val --test_list data/ee488_24_data/val_pairs.csv --save_path ./exps/train2/exp01 --optimizer adopt --batch_size 250 --model GhostFaceNetV2 --trainfunc arcface 
 

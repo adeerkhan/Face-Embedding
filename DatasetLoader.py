@@ -12,53 +12,63 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
 def round_down(num, divisor):
-    return num - (num%divisor)
+    return num - (num % divisor)
 
 def worker_init_fn(worker_id):
     numpy.random.seed(numpy.random.get_state()[1][0] + worker_id)
 
 class meta_loader(Dataset):
-    def __init__(self, train_path, train_ext, transform):
-        
+    def __init__(self, train_path, train_ext, transform, selected_indices=None):
         ## Read Training Files
-        files = glob.glob('%s/*/*.%s'%(train_path,train_ext))
+        files = glob.glob('%s/*/*.%s' % (train_path, train_ext))
 
         ## Make a mapping from Class Name to Class Number
         dictkeys = list(set([x.split('/')[-2] for x in files]))
         dictkeys.sort()
-        dictkeys = { key : ii for ii, key in enumerate(dictkeys) }
+        dictkeys = {key: ii for ii, key in enumerate(dictkeys)}
 
         self.transform  = transform
 
         self.label_dict = {}
         self.data_list  = []
         self.data_label = []
-        
+
         for lidx, file in enumerate(files):
             speaker_name = file.split('/')[-2]
-            speaker_label = dictkeys[speaker_name];
+            speaker_label = dictkeys[speaker_name]
 
             if not (speaker_label in self.label_dict):
-                self.label_dict[speaker_label] = [];
+                self.label_dict[speaker_label] = []
 
-            self.label_dict[speaker_label].append(lidx);
-            
+            self.label_dict[speaker_label].append(lidx)
+
             self.data_label.append(speaker_label)
             self.data_list.append(file)
 
-        print('{:d} files from {:d} classes found.'.format(len(self.data_list),len(self.label_dict)))
+        # If selected_indices is provided, filter data_list and data_label
+        if selected_indices is not None:
+            self.data_list = [self.data_list[i] for i in selected_indices]
+            self.data_label = [self.data_label[i] for i in selected_indices]
+            # Rebuild label_dict based on selected_indices
+            self.label_dict = {}
+            for idx, label in enumerate(self.data_label):
+                if label not in self.label_dict:
+                    self.label_dict[label] = []
+                self.label_dict[label].append(idx)
+
+        print('{:d} files from {:d} classes found.'.format(len(self.data_list), len(self.label_dict)))
 
     def __getitem__(self, indices):
-
         feat = []
         for index in indices:
-            feat.append(self.transform(Image.open(self.data_list[index])));
+            feat.append(self.transform(Image.open(self.data_list[index])))
         feat = numpy.stack(feat, axis=0)
 
-        return torch.FloatTensor(feat), self.data_label[index]
+        # Return the label corresponding to the first index
+        label = self.data_label[indices[0]]
+        return torch.FloatTensor(feat), label
 
     def __len__(self):
-
         return len(self.data_list)
 
 class test_dataset_loader(Dataset):
@@ -74,42 +84,41 @@ class test_dataset_loader(Dataset):
     def __len__(self):
         return len(self.data_list)
 
-
 class meta_sampler(torch.utils.data.Sampler):
     def __init__(self, data_source, nPerClass, max_img_per_cls, batch_size):
 
         self.label_dict         = data_source.label_dict
         self.nPerClass          = nPerClass
-        self.max_img_per_cls    = max_img_per_cls;
-        self.batch_size         = batch_size;
+        self.max_img_per_cls    = max_img_per_cls
+        self.batch_size         = batch_size
 
         self.num_iters          = 0
-        
+
     def __iter__(self):
-        
+
         ## Get a list of identities
-        dictkeys = list(self.label_dict.keys());
+        dictkeys = list(self.label_dict.keys())
         dictkeys.sort()
 
-        lol = lambda lst, sz: [lst[i:i+sz] for i in range(0, len(lst), sz)]
+        lol = lambda lst, sz: [lst[i:i + sz] for i in range(0, len(lst), sz)]
 
         flattened_list = []
         flattened_label = []
 
         ## Data for each class
-        for findex, key in enumerate(dictkeys):
+        for key in dictkeys:
             data    = self.label_dict[key]
-            numSeg  = round_down(min(len(data),self.max_img_per_cls),self.nPerClass)
-            
-            rp      = lol(numpy.random.permutation(len(data))[:numSeg],self.nPerClass)
-            flattened_label.extend([findex] * (len(rp)))
+            numSeg  = round_down(min(len(data), self.max_img_per_cls), self.nPerClass)
+
+            rp      = lol(numpy.random.permutation(len(data))[:numSeg], self.nPerClass)
+            flattened_label.extend([key] * len(rp))
             for indices in rp:
                 flattened_list.append([data[i] for i in indices])
 
         ## Data in random order
-        mixid           = numpy.random.permutation(len(flattened_label))
-        mixlabel        = []
-        mixmap          = []
+        mixid   = numpy.random.permutation(len(flattened_label))
+        mixlabel = []
+        mixmap  = []
 
         ## Prevent two pairs of the same speaker in the same batch
         for ii in mixid:
@@ -123,13 +132,13 @@ class meta_sampler(torch.utils.data.Sampler):
         self.num_iters = len(batch_indices)
 
         return iter(batch_indices)
-    
+
     def __len__(self):
         return self.num_iters
 
-def get_data_loader(batch_size, max_img_per_cls, nDataLoaderThread, nPerClass, train_path, train_ext, transform, **kwargs):
-    
-    train_dataset = meta_loader(train_path, train_ext, transform)
+def get_data_loader(batch_size, max_img_per_cls, nDataLoaderThread, nPerClass, train_path, train_ext, transform, selected_indices=None, **kwargs):
+
+    train_dataset = meta_loader(train_path, train_ext, transform, selected_indices=selected_indices)
 
     train_sampler = meta_sampler(train_dataset, nPerClass, max_img_per_cls, batch_size)
 
@@ -142,5 +151,5 @@ def get_data_loader(batch_size, max_img_per_cls, nDataLoaderThread, nPerClass, t
         worker_init_fn=worker_init_fn,
         drop_last=True,
     )
-    
+
     return train_loader
