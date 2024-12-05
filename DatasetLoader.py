@@ -10,6 +10,7 @@ import glob
 import os
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
+from collections import Counter
 
 def round_down(num, divisor):
     return num - (num % divisor)
@@ -110,7 +111,10 @@ class meta_sampler(torch.utils.data.Sampler):
             data    = self.label_dict[key]
             numSeg  = round_down(min(len(data), self.max_img_per_cls), self.nPerClass)
 
-            rp      = lol(numpy.random.permutation(len(data))[:numSeg], self.nPerClass)
+            rp = lol(numpy.random.permutation(len(data))[:numSeg], self.nPerClass)
+            # Adjust N to ensure a uniform distribution
+            N = min(len(data) for key, data in self.label_dict.items())
+            rp = rp[:N]  # Ensure uniformity
             flattened_label.extend([key] * len(rp))
             for indices in rp:
                 flattened_list.append([data[i] for i in indices])
@@ -153,3 +157,52 @@ def get_data_loader(batch_size, max_img_per_cls, nDataLoaderThread, nPerClass, t
     )
 
     return train_loader
+
+class TURNLoader:
+    def __init__(self, train_path, train_ext, transform, batch_size, max_img_per_cls, nDataLoaderThread, nPerClass):
+        self.train_path = train_path
+        self.train_ext = train_ext
+        self.transform = transform
+        self.batch_size = batch_size
+        self.max_img_per_cls = max_img_per_cls
+        self.nDataLoaderThread = nDataLoaderThread
+        self.nPerClass = nPerClass
+
+        # Initialize meta_loader
+        self.meta_dataset = meta_loader(train_path, train_ext, transform)
+
+    def get_linear_probing_loader(self):
+        return get_data_loader(
+            batch_size=self.batch_size,
+            max_img_per_cls=self.max_img_per_cls,
+            nDataLoaderThread=self.nDataLoaderThread,
+            nPerClass=self.nPerClass,
+            train_path=self.train_path,
+            train_ext=self.train_ext,
+            transform=self.transform,
+            selected_indices=None  # Use all samples
+        )
+
+    def get_cleansed_loader(self, clean_indices):
+        # Access data_label from meta_loader
+        data_label = self.meta_dataset.data_label
+
+        # Ensure uniformity in clean samples
+        class_counts = Counter([data_label[i] for i in clean_indices])
+        min_count = min(class_counts.values())  # Minimum samples per class
+        uniform_indices = []
+        for label in class_counts:
+            class_indices = [i for i in clean_indices if data_label[i] == label]
+            uniform_indices.extend(class_indices[:min_count])  # Keep only `min_count` per class
+
+        # Use uniform_indices for cleansed dataset
+        return get_data_loader(
+            batch_size=self.batch_size,
+            max_img_per_cls=self.max_img_per_cls,
+            nDataLoaderThread=self.nDataLoaderThread,
+            nPerClass=self.nPerClass,
+            train_path=self.train_path,
+            train_ext=self.train_ext,
+            transform=self.transform,
+            selected_indices=uniform_indices  # Balanced clean samples
+        )

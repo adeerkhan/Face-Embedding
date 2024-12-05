@@ -103,7 +103,6 @@ def compute_eer(all_labels, all_scores):
 ## ===== ===== ===== ===== ===== ===== ===== =====
 
 def main_worker(args):
-
     os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu)
 
     logger = logging.getLogger(__name__)
@@ -155,23 +154,29 @@ def main_worker(args):
     print('Total model parameters: {:,}'.format(pytorch_total_params))
 
     ## Evaluation code
-    if args.eval == True:
-
+    if args.eval:
         sc, lab, trials = trainer.evaluateFromList(transform=test_transform, **vars(args))
-
         EER = compute_eer(lab, sc)
-
         print('EER {:.2f}%'.format(EER * 100))
-
         if args.output != '':
             with open(args.output, 'w') as f:
                 for ii in range(len(sc)):
                     f.write('{:4f},{:d},{}\n'.format(sc[ii], lab[ii], trials[ii]))
-
         quit()
 
     ## Log arguments
     logger.info('{}'.format(args))
+
+    ## Initialize the TURNLoader
+    turn_loader = TURNLoader(
+        train_path=args.train_path,
+        train_ext=args.train_ext,
+        transform=train_transform,
+        batch_size=args.batch_size,
+        max_img_per_cls=args.max_img_per_cls,
+        nDataLoaderThread=args.nDataLoaderThread,
+        nPerClass=args.nPerClass,
+    )
 
     #########################
     # Step 1: Linear Probing
@@ -184,35 +189,31 @@ def main_worker(args):
     args.trainfunc = 'gce'  # Ensure that GCE loss is used
 
     # Modify optimizer to update only classifier parameters
-    trainer.__optimizer__ = importlib.import_module('optimizer.'+args.optimizer).__getattribute__('Optimizer')(
+    trainer.__optimizer__ = importlib.import_module('optimizer.' + args.optimizer).__getattribute__('Optimizer')(
         filter(lambda p: p.requires_grad, trainer.__model__.parameters()), **vars(args)
     )
 
     # Modify scheduler to use the new optimizer
-    trainer.__scheduler__, trainer.lr_step = importlib.import_module('scheduler.'+args.scheduler).__getattribute__('Scheduler')(
-        trainer.__optimizer__, **vars(args)
+    scheduler_args = {k: v for k, v in vars(args).items() if k != 'optimizer'}
+    trainer.__scheduler__, trainer.lr_step = importlib.import_module('scheduler.' + args.scheduler).__getattribute__('Scheduler')(
+        trainer.__optimizer__, **scheduler_args
     )
 
     # Set max_epoch to elp_epochs
     args.max_epoch = args.elp_epochs
 
-    # Initialise trainer and data loader for linear probing
-    trainLoader = get_data_loader(transform=train_transform, **vars(args))
+    # Get data loader for linear probing
+    trainLoader = turn_loader.get_linear_probing_loader()
 
     print("Starting Linear Probing for {} epochs...".format(args.elp_epochs))
 
     for ep in range(1, args.max_epoch + 1):
-
         clr = [x['lr'] for x in trainer.__optimizer__.param_groups]
-
         logger.info("Linear Probing Epoch {:04d} started with LR {:.5f} ".format(ep, max(clr)))
         loss = trainer.train_network(trainLoader)
         logger.info("Linear Probing Epoch {:04d} completed with TLOSS {:.5f}".format(ep, loss))
-
         if trainer.lr_step == 'epoch':
             trainer.__scheduler__.step()
-
-        # No evaluation during linear probing
 
     #########################
     # Step 2: Cleansing and Fine-Tuning
@@ -235,36 +236,24 @@ def main_worker(args):
 
     print("Selected {} clean samples out of {}".format(len(clean_indices), len(losses)))
 
-    # Create cleansed dataset and data loader
-    print("Creating cleansed dataset...")
-    cleansed_dataset = meta_loader(
-        train_path=args.train_path,
-        train_ext=args.train_ext,
-        transform=train_transform,
-        selected_indices=clean_indices
-    )
-
-    cleansed_loader = torch.utils.data.DataLoader(
-        cleansed_dataset,
-        batch_size=args.batch_size,
-        num_workers=args.nDataLoaderThread,
-        shuffle=True,
-        drop_last=True,
-        pin_memory=False,
-        worker_init_fn=worker_init_fn
-    )
+    # Get cleansed data loader
+    cleansed_loader = turn_loader.get_cleansed_loader(clean_indices)
 
     # Unfreeze the feature extractor
     trainer.__model__.unfreeze_feature_extractor()
 
     # Reinitialize the optimizer to update all parameters
-    trainer.__optimizer__ = importlib.import_module('optimizer.'+args.optimizer).__getattribute__('Optimizer')(
+    trainer.__optimizer__ = importlib.import_module('optimizer.' + args.optimizer).__getattribute__('Optimizer')(
         trainer.__model__.parameters(), **vars(args)
     )
 
     # Reinitialize the scheduler
-    trainer.__scheduler__, trainer.lr_step = importlib.import_module('scheduler.'+args.scheduler).__getattribute__('Scheduler')(
-        trainer.__optimizer__, **vars(args)
+    trainer.__scheduler__, trainer.lr_step = importlib.import_module('scheduler.' + args.scheduler).__getattribute__('Scheduler')(
+        optimizer=trainer.__optimizer__,
+        lr=args.lr,
+        lr_decay=args.lr_decay,
+        test_interval=args.test_interval,
+        max_epoch=args.max_epoch
     )
 
     # Set max_epoch to efft_epochs
@@ -272,30 +261,39 @@ def main_worker(args):
 
     # Use standard loss function for fine-tuning
     args.trainfunc = 'softmax'  # Or 'arcface', depending on your choice
-    trainer.__model__.__C__ = importlib.import_module('loss.' + args.trainfunc).__getattribute__('LossFunction')(
-        nOut=args.nOut, nClasses=args.nClasses, **vars(args)
+
+    # Reinitialize the scheduler with all required arguments
+    trainer.__scheduler__, trainer.lr_step = importlib.import_module('scheduler.' + args.scheduler).__getattribute__('Scheduler')(
+        optimizer=trainer.__optimizer__,
+        lr=args.lr,
+        lr_decay=args.lr_decay,
+        test_interval=args.test_interval,
+        max_epoch=args.max_epoch
     )
+    # Validate cleansed_loader
+    if len(cleansed_loader.dataset) == 0:
+        raise ValueError("Cleansed loader is empty. Check GMM cleansing and class balance.")
 
+    # Start Fine-Tuning
     print("Starting Fine-Tuning for {} epochs...".format(args.efft_epochs))
-
     for ep in range(1, args.max_epoch + 1):
+        for batch_idx, (data, labels) in enumerate(cleansed_loader):
+            # Forward pass
+            outputs = trainer.__model__(data.cuda())
+            loss = trainer.__model__.__C__.criterion(outputs, labels.cuda())  # Use your model's criterion
 
-        clr = [x['lr'] for x in trainer.__optimizer__.param_groups]
+            # Backward pass and optimization
+            trainer.__optimizer__.zero_grad()
+            loss.backward()
+            trainer.__optimizer__.step()
 
-        logger.info("Fine-Tuning Epoch {:04d} started with LR {:.5f} ".format(ep, max(clr)))
-        loss = trainer.train_network(cleansed_loader)
-        logger.info("Fine-Tuning Epoch {:04d} completed with TLOSS {:.5f}".format(ep, loss))
+            # Log training progress
+            logger.info(f"Epoch {ep}, Batch {batch_idx}, Loss: {loss.item()}")
 
-        if ep % args.test_interval == 0:
-
-            sc, lab, trials = trainer.evaluateFromList(transform=test_transform, **vars(args))
-            EER = compute_eer(lab, sc)
-
-            logger.info("Fine-Tuning Epoch {:04d}, Val EER {:.2f}%".format(ep, EER * 100))
-            trainer.saveParameters(args.save_path + "/epoch{:04d}.model".format(ep))
-
+        # Scheduler step
         if trainer.lr_step == 'epoch':
             trainer.__scheduler__.step()
+
 
 ## ===== ===== ===== ===== ===== ===== ===== =====
 ## Main function

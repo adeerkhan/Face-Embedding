@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy, math, pdb, sys
 import time, importlib
-from DatasetLoader import test_dataset_loader
+from DatasetLoader import test_dataset_loader, TURNLoader
 from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 
@@ -98,8 +98,12 @@ class ModelTrainer(object):
                     # For loss functions without 'criterion', directly call forward
                     loss = self.__model__.__C__(embeddings, label)
 
-                per_sample_losses.extend(loss.detach().cpu().numpy())
-                labels.extend(label.cpu().numpy())
+                # Check if `loss` is scalar or batch-wise
+                if loss.dim() == 0:  # Scalar loss for the batch
+                    loss = loss.repeat(data.size(0))  # Repeat loss for batch size
+
+                per_sample_losses.extend(loss.detach().cpu().numpy().tolist())
+                labels.extend(label.cpu().numpy().tolist())
 
         return numpy.array(per_sample_losses), numpy.array(labels)
 
