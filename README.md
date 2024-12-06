@@ -92,24 +92,146 @@ python ./trainEmbedNet.py \
   --width 1
   --model GhostFaceNetsV2
 
+## TURN Train1
+python ./trainEmbedNet.py \
+  --gpu 0 \
+  --train_path data/ee488_24_data/train1 \
+  --test_path data/ee488_24_data/val \
+  --test_list data/ee488_24_data/val_pairs.csv \
+  --nClasses 2882 \
+  --save_path ./exps/train1/exp11 \
+  --optimizer adopt \
+  --scheduler steplr \
+  --batch_size 150 \
+  --trainfunc arcface \
+  --image_size 256 \
+  --lr 0.001 \
+  --lr_decay 0.9 \
+  --max_epoch 30 \
+  --nOut 1024 \
+  --margin 0.1 \
+  --scale 30 \
+  --width 1 \
+  --model GhostFaceNetsV2
+
+## New Try:
+python ./trainEmbedNet.py \
+  --gpu 0 \
+  --train_path data/ee488_24_data/train1 \
+  --test_path data/ee488_24_data/val \
+  --test_list data/ee488_24_data/val_pairs.csv \
+  --nClasses 2882 \
+  --save_path ./exps/train1/exp09 \
+  --optimizer adopt \
+  --scheduler steplr \
+  --batch_size 150 \
+  --trainfunc softmax \
+  --image_size 256 \
+  --lr 0.001 \
+  --lr_decay 0.9 \
+  --max_epoch 50 \
+  --margin 0.1 \
+  --scale 30 \
+  --nOut 1024 \
+  --dropout 0.2 \
+  --model GhostFaceNetsV2
+
+## New TURN TRAIN2
+python ./trainEmbedNet.py \
+    --gpu 0 \
+    --train_path data/ee488_24_data/train2 \
+    --test_path data/ee488_24_data/val \
+    --test_list data/ee488_24_data/val_pairs.csv \
+    --nClasses 1230 \
+    --save_path ./exps/train2/exp03 \
+    --initial_model ./exps/train1/exp08/epoch0050.model \
+    --optimizer adopt \
+    --scheduler steplr \
+    --batch_size 100 \
+    --trainfunc softmax \
+    --image_size 256 \
+    --lr 0.0005 \
+    --lr_decay 0.85 \
+    --max_epoch 30 \
+    --margin 0.1 \
+    --scale 30 \
+    --nOut 1024 \
+    --dropout 0.2 \
+    --elp_epochs 10 \
+    --efft_epochs 20 \
+    --model GhostFaceNetsV2 \
+    --nPerClass 1
+
+## TurnTrain.py
+python trainTurn.py \
+    --batch_size 128 \
+    --max_img_per_cls 500 \
+    --nDataLoaderThread 4 \
+    --elp_epochs 5 \
+    --efft_epochs 10 \
+    --threshold 0.9 \
+    --val_path data/ee488_24_data/val \
+    --val_list data/ee488_24_data/val_pairs.csv \
+    --initial_model ./exps/train1/exp05/epoch0030.model \
+    --save_path ./exps/turn \
+    --train_path ./data/ee488_24_data/train2 \
+    --train_ext jpg \
+    --image_size 256 \
+    --gpu 0 \
+    --lr 0.0005 \
+    --lr_decay 0.85 \
+    --weight_decay 1e-4
+
 ## Train 2
 python ./trainEmbedNet.py \
   --gpu 0 \
-  --save_path exps/train2/exp02 \
-  --initial_model exps/epoch0015.model \
   --train_path data/ee488_24_data/train2 \
   --test_path data/ee488_24_data/val \
   --test_list data/ee488_24_data/val_pairs.csv \
   --nClasses 1230 \
-  --max_epoch 50 \
+  --save_path ./exps/train2/turn_exp01 \
+  --initial_model ./exps/train1/exp06/epoch0030.model \
   --optimizer adopt \
-  --batch_size 330 \
-  --trainfunc arcface \
+  --scheduler steplr \
+  --batch_size 150 \
+  --trainfunc gce \
   --image_size 256 \
-  --nOut 1024
+  --lr 0.001 \
+  --lr_decay 0.9 \
+  --elp_epochs 5 \
+  --efft_epochs 10 \
+  --model GhostFaceNetsV2
+
 
 python ./trainEmbedNet.py --gpu 0 --train_path data/ee488_24_data/train2 --test_path data/ee488_24_data/val --test_list data/ee488_24_data/val_pairs.csv --save_path ./exps/train2/exp01 --optimizer adopt --batch_size 250 --model GhostFaceNetV2 --trainfunc arcface 
 
 Notes:
 -Train1: --nClasses 2882
 -Train2: --nClasses 1230
+
+
+
+
+## for Turn new
+python ./trainEmbedNet.py \
+  --gpu 0 \
+  --train_path data/ee488_24_data/train1 \
+  --test_path data/ee488_24_data/val \
+  --test_list data/ee488_24_data/val_pairs.csv \
+  --nClasses 2882 \
+  --save_path ./exps/train1/exp09 \
+  --optimizer adopt \
+  --scheduler steplr \
+  --batch_size 150 \
+  --trainfunc softmax \
+  --image_size 256 \
+  --lr 0.001 \
+  --lr_decay 0.9 \
+  --max_epoch 50 \
+  --margin 0.1 \
+  --scale 30 \
+  --nOut 1024 \
+  --dropout 0.2 \
+  --model GhostFaceNetsV2
+
+
