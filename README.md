@@ -234,4 +234,22 @@ python ./trainEmbedNet.py \
   --dropout 0.2 \
   --model GhostFaceNetsV2
 
-
+## TurnTrain.py
+python trainTurn.py \
+    --batch_size 128 \
+    --max_img_per_cls 500 \
+    --nDataLoaderThread 4 \
+    --elp_epochs 5 \
+    --efft_epochs 10 \
+    --threshold 0.9 \
+    --val_path data/ee488_24_data/val \
+    --val_list data/ee488_24_data/val_pairs.csv \
+    --initial_model ./exps/train1/exp11/epoch0005.model \
+    --save_path ./exps/turn \
+    --train_path ./data/ee488_24_data/train2 \
+    --train_ext jpg \
+    --image_size 256 \
+    --gpu 0 \
+    --lr 0.0005 \
+    --lr_decay 0.85 \
+    --weight_decay 1e-4

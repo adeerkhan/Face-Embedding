@@ -1,6 +1,3 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-
 import sys
 import os
 import argparse
@@ -98,7 +95,10 @@ def main_worker(args):
     )
 
     # Initialize Model
-    model = TURNNet(model="GhostFaceNetsV2", trainfunc="GeneralizedCrossEntropy", num_classes=1230).cuda()
+    model = TURNNet(model="GhostFaceNetsV2", 
+                    trainfunc=LossFunction(num_classes=1230, q=0.7), 
+                    num_classes=1230, 
+                    nOut=1024).cuda()
 
     # Initialize Trainer
     trainer = TURNTrainer(
@@ -108,9 +108,7 @@ def main_worker(args):
         mixedprec=True,
         lr=args.lr,
         lr_decay=args.lr_decay,
-        weight_decay=1e-4,
-        test_interval=1, 
-        max_epoch=args.elp_epochs + args.efft_epochs 
+        weight_decay=args.weight_decay
     )
 
     # Load pre-trained model

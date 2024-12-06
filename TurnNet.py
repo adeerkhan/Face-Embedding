@@ -15,8 +15,11 @@ class TURNNet(nn.Module):
         self.__E__ = Model(**kwargs)
 
         # Loss function
-        LossFunction = importlib.import_module('loss.' + trainfunc).__getattribute__('LossFunction')
-        self.__C__ = LossFunction(**kwargs)
+        if isinstance(trainfunc, nn.Module):
+            self.__C__ = trainfunc
+        else:
+            LossFunction = importlib.import_module('loss.' + trainfunc).__getattribute__('LossFunction')
+            self.__C__ = LossFunction(**kwargs)
 
     def forward(self, data, labels=None):
         features = self.__E__.forward(data)
@@ -25,12 +28,12 @@ class TURNNet(nn.Module):
         return self.__C__.forward(features, labels)
 
 class TURNTrainer:
-    def __init__(self, turn_model, optimizer, scheduler, mixedprec=False, **kwargs):
+    def __init__(self, turn_model, optimizer, scheduler, mixedprec=False, test_interval=1, max_epoch=1, **kwargs):
         self.__model__ = turn_model
         Optimizer = importlib.import_module('optimizer.' + optimizer).__getattribute__('Optimizer')
         self.__optimizer__ = Optimizer(self.__model__.parameters(), **kwargs)
         Scheduler = importlib.import_module('scheduler.' + scheduler).__getattribute__('Scheduler')
-        self.__scheduler__, self.lr_step = Scheduler(self.__optimizer__, **kwargs)
+        self.__scheduler__, self.lr_step = Scheduler(self.__optimizer__, test_interval, max_epoch, **kwargs)
         self.mixedprec = mixedprec
         self.scaler = GradScaler()
 
@@ -96,4 +99,16 @@ class TURNTrainer:
         torch.save(self.__model__.state_dict(), path)
 
     def loadParameters(self, path):
-        self.__model__.load_state_dict(torch.load(path))
+        print(f"Loading model from {path}")
+        checkpoint = torch.load(path)
+        model_dict = self.__model__.state_dict()
+
+        # Filter out unnecessary keys and ensure shapes match
+        filtered_dict = {k: v for k, v in checkpoint.items() if k in model_dict and model_dict[k].shape == v.shape}
+        mismatched_keys = [k for k in checkpoint.keys() if k not in filtered_dict]
+
+        if mismatched_keys:
+            print(f"Warning: The following keys were skipped due to mismatched shapes or being unexpected: {mismatched_keys}")
+
+        model_dict.update(filtered_dict)
+        self.__model__.load_state_dict(model_dict)
