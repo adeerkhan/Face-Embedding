@@ -1,9 +1,12 @@
+#! /usr/bin/python
+# -*- encoding: utf-8 -*-
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class LossFunction(nn.Module):
-    def __init__(self, num_classes, q=0.7):
+    def __init__(self, num_classes, q=0.9):
         """
         Generalized Cross Entropy (GCE) Loss
         :param num_classes: Number of classes in the dataset
