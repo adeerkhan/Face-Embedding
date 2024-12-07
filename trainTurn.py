@@ -50,17 +50,22 @@ args = parser.parse_args()
 def main_worker(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = '{}'.format(args.gpu)
 
-    logger = logging.getLogger(__name__)
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
 
+    # Set up logging to both terminal and file
     logging.basicConfig(
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(args.save_path + "/turn_scores.txt", mode="a+")
+            logging.FileHandler(os.path.join(args.save_path, "turn_scores.txt"), mode="a+")
         ],
         level=logging.DEBUG,
         format='[%(levelname)s] :: %(asctime)s :: %(message)s',
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    logger = logging.getLogger(__name__)
+    logger.info("Starting TURN Training...")
 
     # Data transformations
     train_transform = transforms.Compose([

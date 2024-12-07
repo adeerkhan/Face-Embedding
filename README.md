@@ -244,7 +244,7 @@ python trainTurn.py \
     --threshold 0.9 \
     --val_path data/ee488_24_data/val \
     --val_list data/ee488_24_data/val_pairs.csv \
-    --initial_model ./exps/train1/exp11/epoch0005.model \
+    --initial_model ./exps/train1/exp11/epoch0020.model \
     --save_path ./exps/turn \
     --train_path ./data/ee488_24_data/train2 \
     --train_ext jpg \

@@ -79,15 +79,23 @@ class TURNTrainer:
         self.__model__.eval()
         total_loss, total_correct, total_samples = 0, 0, 0
 
+        # Use a binary loss function for validation
+        bce_loss_func = torch.nn.BCEWithLogitsLoss()
+
         with torch.no_grad():
             for img1, img2, labels in tqdm(loader, desc="Validating"):
                 # Pass both images through the model and compute the similarity
                 feat1 = self.__model__(img1.cuda())
                 feat2 = self.__model__(img2.cuda())
                 logits = F.cosine_similarity(feat1, feat2)
-                loss = loss_function(logits, labels.float().cuda())
+
+                # Compute binary loss using BCEWithLogitsLoss
+                # Reshape to (B, 1) for BCE input, and labels to float
+                loss = bce_loss_func(logits.unsqueeze(1), labels.float().cuda().unsqueeze(1))
                 total_loss += loss.item()
-                predictions = (logits > 0.5).long()  # Assuming threshold for binary classification
+
+                # Predictions: threshold the similarity at 0.5
+                predictions = (logits > 0.5).long()
                 total_correct += (predictions == labels.cuda()).sum().item()
                 total_samples += labels.size(0)
 
