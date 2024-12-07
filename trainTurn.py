@@ -11,6 +11,8 @@ from tqdm import tqdm
 from models.GhostFaceNetsV2 import GhostFaceNetsV2
 from loss.GeneralizedCrossEntropy import LossFunction
 import importlib
+from sklearn import metrics
+import numpy as np
 
 # ## ===== ===== ===== ===== ===== ===== ===== =====
 # ## Parse arguments
@@ -42,6 +44,35 @@ parser.add_argument('--lr_decay', type=float, default=0.85, help='Learning rate 
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay for optimizer')
 
 args = parser.parse_args()
+
+def compute_eer(labels, scores):
+    # Convert to numpy if not already
+    labels = np.array(labels)
+    scores = np.array(scores)
+
+    fpr, tpr, thresholds = metrics.roc_curve(labels, scores, pos_label=1)
+    fnr = 1 - tpr
+    # Find the threshold where fpr and fnr cross
+    eer_threshold = thresholds[np.nanargmin(np.absolute(fnr - fpr))]
+    EER = fpr[np.nanargmin(np.absolute(fnr - fpr))]
+
+    return EER, eer_threshold
+
+def evaluate_and_compute_eer(trainer, loader):
+    trainer.__model__.eval()
+    all_scores = []
+    all_labels = []
+    with torch.no_grad():
+        for img1, img2, labels in loader:
+            feat1 = trainer.__model__(img1.cuda())
+            feat2 = trainer.__model__(img2.cuda())
+            # Cosine similarity scores
+            scores = F.cosine_similarity(feat1, feat2).cpu().numpy()
+            all_scores.extend(scores)
+            all_labels.extend(labels.numpy())
+
+    EER, eer_threshold = compute_eer(all_labels, all_scores)
+    return EER
 
 # ## ===== ===== ===== ===== ===== ===== ===== =====
 # ## TURN Training Script
@@ -163,6 +194,10 @@ def main_worker(args):
         print("Validating on validation set...")
         val_loss, val_accuracy = trainer.validate(val_loader, gce_loss)
         print(f"Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.2f}%")
+
+        # Compute EER after validation (if desired every epoch or at intervals)
+        EER = evaluate_and_compute_eer(trainer, val_loader)
+        print(f"Epoch {ep}, Val EER: {EER*100:.2f}%")
 
         # Save checkpoint periodically
         if ep % 5 == 0 or ep == args.efft_epochs:
