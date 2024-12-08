@@ -43,7 +43,7 @@ parser.add_argument('--val_path', type=str, default="data/val", help='Path to va
 parser.add_argument('--val_list', type=str, default="data/val_pairs.csv", help='Path to validation file list')
 parser.add_argument('--image_size', type=int, default=256, help='Image size')
 parser.add_argument('--gpu', type=int, default=0, help='GPU index')
-parser.add_argument('--fine_tune_loss', type=str, default="GeneralizedCrossEntropy", help='Loss function for fine-tuning phase')
+parser.add_argument('--fine_tune_loss', type=str, default="softmax", help='Loss function for fine-tuning phase')
 
 ## Optimizer
 parser.add_argument('--optimizer', type=str, default="adam", help='Optimizer')
@@ -52,6 +52,11 @@ parser.add_argument('--lr', type=float, default=0.0005, help='Learning rate')
 parser.add_argument('--lr_decay', type=float, default=0.85, help='Learning rate decay')
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay for optimizer')
 parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate for the model')
+
+## ArcFace-specific parameters
+parser.add_argument('--arcface_scale', type=float, default=30.0, help='Scale for ArcFace loss')
+parser.add_argument('--arcface_margin', type=float, default=0.50, help='Margin for ArcFace loss')
+
 
 args = parser.parse_args()
 
@@ -89,9 +94,32 @@ def load_loss_function(loss_name, **kwargs):
         # Dynamically import the loss module and get the LossFunction class
         loss_module = importlib.import_module(f'loss.{loss_name}')
         LossFunction = getattr(loss_module, 'LossFunction')
-        return LossFunction(**kwargs)
+        
+        # Define required parameters for specific loss functions
+        loss_specific_params = {
+            'arcface': ['nOut', 'nClasses', 'scale', 'margin'],
+            'generalizedcrossentropy': ['num_classes', 'q'],
+            # Add other loss functions and their required parameters here
+        }
+        
+        # Normalize loss_name to lowercase for matching
+        loss_name_lower = loss_name.lower()
+        
+        # Get the required parameters for the selected loss
+        required_params = loss_specific_params.get(loss_name_lower, [])
+        
+        # Check if all required parameters are provided
+        for param in required_params:
+            if param not in kwargs:
+                raise ValueError(f"Missing required parameter '{param}' for {loss_name} loss.")
+        
+        # Extract only the required parameters
+        loss_params = {param: kwargs[param] for param in required_params}
+        
+        return LossFunction(**loss_params)
     except (ModuleNotFoundError, AttributeError) as e:
-        raise ValueError(f"Loss function {loss_name} could not be loaded. Ensure it exists in the loss folder. Error: {e}")
+        raise ValueError(f"Loss function '{loss_name}' could not be loaded. Ensure it exists in the 'loss' folder. Error: {e}")
+
 
 
 # ## ===== ===== ===== ===== ===== ===== ===== =====
@@ -123,31 +151,11 @@ def main_worker(args):
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    
-    logger.info("Starting TURN Training...")
-
     # Data transformations
     train_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize(args.image_size),
         transforms.RandomCrop([args.image_size - 32, args.image_size - 32]),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-
-    # testing new transforms
-    # train_transform = transforms.Compose([
-    # transforms.Resize(args.image_size),
-    # transforms.RandomResizedCrop(args.image_size - 32),
-    # transforms.RandomHorizontalFlip(),
-    # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-    # transforms.ToTensor(),
-    # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    # ])
-
-    val_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize(args.image_size),
-        transforms.CenterCrop([args.image_size - 32, args.image_size - 32]),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
@@ -169,11 +177,13 @@ def main_worker(args):
     )
 
     # Initialize Model
-    model = TURNNet(model="GhostFaceNetsV2", 
-                    trainfunc=LossFunction(num_classes=1230, q=args.gce_q), 
-                    num_classes=1230, 
-                    nOut=1024,
-                    dropout=args.dropout).cuda()
+    model = TURNNet(
+        model="GhostFaceNetsV2", 
+        trainfunc=LossFunction(num_classes=1230, q=args.gce_q), 
+        num_classes=1230, 
+        nOut=1024,
+        dropout=args.dropout
+    ).cuda()
 
     # Initialize Trainer
     trainer = TURNTrainer(
@@ -189,14 +199,41 @@ def main_worker(args):
     # Load pre-trained model
     if args.initial_model:
         trainer.loadParameters(args.initial_model)
-        print(f"Loaded initial model from {args.initial_model}")
+        logger.info(f"Loaded initial model from {args.initial_model}")
 
-    # Initialize GCE Loss
+    # Initialize GCE Loss for Linear Probing
     gce_loss = LossFunction(num_classes=1230, q=args.gce_q).cuda()
-    fine_tune_loss = load_loss_function(args.fine_tune_loss, num_classes=1230, q=args.fine_tune_loss).cuda()
 
+    # Initialize GCE Loss for Linear Probing
+    gce_loss = LossFunction(num_classes=1230, q=args.gce_q).cuda()
+
+    # Initialize Fine-Tune Loss based on the selected loss function
+    if args.fine_tune_loss.lower() == "generalizedcrossentropy":
+        fine_tune_loss = load_loss_function(
+            args.fine_tune_loss,
+            num_classes=1230,
+            q=args.gce_q
+        ).cuda()
+    elif args.fine_tune_loss.lower() == "arcface":
+        fine_tune_loss = load_loss_function(
+            args.fine_tune_loss,
+            nOut=1024,           # Must match model's output feature dimension
+            nClasses=1230,       # Number of classes
+            scale=args.arcface_scale,
+            margin=args.arcface_margin
+        ).cuda()
+    else:
+        raise ValueError(f"Unsupported fine_tune_loss: {args.fine_tune_loss}")
+
+
+    ## Log arguments
+    logger.info('{}'.format(args))
+
+    logger.info(f"Finetune loss {args.fine_tune_loss}")
+    logger.info("Starting TURN Training...")
+    
     # Step 1: Linear Probing
-    print("Starting Linear Probing...")
+    logger.info("Starting Linear Probing...")
     trainLoader = turn_loader.get_linear_probing_loader()
     for ep in range(1, args.elp_epochs + 1):
         logger.info(f"Epoch {ep}/{args.elp_epochs} for Linear Probing")
@@ -205,7 +242,7 @@ def main_worker(args):
         logger.info(f"Validation - Loss: {val_loss:.4f}, Accuracy: {val_acc:.2f}%")
 
     # Step 2: Cleanse and Fine-Tune
-    print("Cleansing and Fine-Tuning...")
+    logger.info("Cleansing and Fine-Tuning...")
 
     # Compute per-sample losses
     losses = trainer.compute_per_sample_losses(trainLoader, gce_loss)
@@ -231,7 +268,7 @@ def main_worker(args):
         trainer.train_network(cleansed_loader, fine_tune_loss)
 
         # Validate after each epoch
-        print("Validating on validation set...")
+        logger.info("Validating on validation set...")
         val_loss, val_accuracy = trainer.validate(val_loader, fine_tune_loss)
         logger.info(f"Validation Loss: {val_loss:.4f}, Validation Accuracy: {val_accuracy:.2f}%")
 
@@ -243,7 +280,7 @@ def main_worker(args):
         if ep % 5 == 0 or ep == args.efft_epochs:
             checkpoint_path = os.path.join(args.save_path, f"fine_tune_epoch{ep:04d}.model")
             trainer.saveParameters(checkpoint_path)
-            print(f"Checkpoint saved at {checkpoint_path}")
+            logger.info(f"Checkpoint saved at {checkpoint_path}")
 
 
 # ## ===== ===== ===== ===== ===== ===== ===== =====

@@ -15,7 +15,7 @@ class LossFunction(nn.Module):
         """
         super(LossFunction, self).__init__()
         self.num_classes = num_classes
-        self.q = q
+        self.q = float(q)  # Ensure q is a float
 
     def forward(self, pred, labels, reduction='mean'):
         """

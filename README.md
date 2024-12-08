@@ -256,32 +256,26 @@ python trainTurn.py \
 
 
 python trainTurn.py \
-    --batch_size 150 \
+    --batch_size 100 \
     --max_img_per_cls 500 \
     --nDataLoaderThread 4 \
-    --elp_epochs 5 \
-    --efft_epochs 10 \
+    --elp_epochs 2 \
+    --efft_epochs 20 \
     --threshold 0.85 \
     --val_path data/ee488_24_data/val \
     --val_list data/ee488_24_data/val_pairs.csv \
     --initial_model ./exps/train1/exp11/epoch0020.model \
-    --save_path ./exps/turn10 \
+    --save_path ./exps/turn16 \
     --train_path ./data/ee488_24_data/train2 \
     --image_size 256 \
     --gpu 0 \
-    --lr 0.001 \
-    --lr_decay 0.85 \
-    --weight_decay 0.0005 \
-    --dropout 0.0 \
-    --optimizer adopt \
-    --scheduler steplr \
-    --train_loss GeneralizedCrossEntropy \
-    --train_loss_q 0.7 \
-    --fine_tune_loss arcface \
-    --fine_tune_loss_nOut 1024 \
-    --fine_tune_loss_nClasses 1230 \
-    --fine_tune_loss_scale 64.0 \
-    --fine_tune_loss_margin 0.5
+    --lr 0.0001 \
+    --lr_decay 0.65 \
+    --weight_decay 1e-4 \
+    --gce_q 0.6 \
+    --optimizer adam \
+    --scheduler steplr
+    --fine_tune_loss arcface
 
 
 1. Please upload your paper presentation in PPT or PDF to the following link at least 30 minutes before the class.
