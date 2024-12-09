@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from TurnDataloader import TURNLoader
 from TurnNet import TURNTrainer, TURNNet
 from models.GhostFaceNetsV2 import GhostFaceNetsV2
-from loss.GeneralizedCrossEntropy import LossFunction
+from loss.generalizedcrossentropy import LossFunction
 from sklearn import metrics
 import numpy as np
 import torch

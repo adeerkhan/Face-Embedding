@@ -75,7 +75,7 @@ class ModifiedGDC(nn.Module):
         self.bn1 = nn.BatchNorm2d(in_chs)
         self.dropout = nn.Dropout(dropout)
         self.conv = nn.Conv2d(in_chs, emb, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm1d(emb)
+        self.bn2 = nn.BatchNorm1d(emb)  # Expected input shape: [batch_size, emb]
         self.linear = nn.Linear(emb, num_classes) if num_classes else nn.Identity()
 
     def forward(self, x):
@@ -86,17 +86,22 @@ class ModifiedGDC(nn.Module):
             kernel_size -= 1
 
         # Initialize depth-wise convolution dynamically if necessary
-        if self.conv_dw is None or self.conv_dw.kernel_size[0] != kernel_size:
+        if self.conv_dw is None or (
+            isinstance(self.conv_dw, nn.Conv2d) and self.conv_dw.kernel_size[0] != kernel_size
+        ):
             self.conv_dw = nn.Conv2d(
                 self.in_chs, self.in_chs, kernel_size=kernel_size, groups=self.in_chs, bias=False
             ).to(x.device)  # Ensure it matches the input tensor's device
 
         # Forward pass
-        x = self.conv_dw(x)
+        if self.conv_dw is not None:  # Ensure conv_dw is valid before applying
+            x = self.conv_dw(x)
         x = self.bn1(x)
         x = self.dropout(x)
         x = self.conv(x)
-        x = x.view(x.size(0), -1)  # Flatten
+
+        # Reduce spatial dimensions
+        x = x.mean(dim=[2, 3])  # Global average pooling to reduce spatial dimensions
         x = self.bn2(x)
         x = self.linear(x)
         return x

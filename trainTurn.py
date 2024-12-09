@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from TurnDataloader import TURNLoader
 from TurnNet import TURNTrainer, TURNNet
 from models.GhostFaceNetsV2 import GhostFaceNetsV2
-from loss.GeneralizedCrossEntropy import LossFunction
+from loss.generalizedcrossentropy import LossFunction
 from sklearn import metrics
 import numpy as np
 import torch
@@ -43,7 +43,7 @@ parser.add_argument('--val_path', type=str, default="data/val", help='Path to va
 parser.add_argument('--val_list', type=str, default="data/val_pairs.csv", help='Path to validation file list')
 parser.add_argument('--image_size', type=int, default=256, help='Image size')
 parser.add_argument('--gpu', type=int, default=0, help='GPU index')
-parser.add_argument('--fine_tune_loss', type=str, default="softmax", help='Loss function for fine-tuning phase')
+parser.add_argument('--fine_tune_loss', type=str, default="generalizedcrossentropy", help='Loss function for fine-tuning phase')
 
 ## Optimizer
 parser.add_argument('--optimizer', type=str, default="adam", help='Optimizer')
@@ -52,10 +52,6 @@ parser.add_argument('--lr', type=float, default=0.0005, help='Learning rate')
 parser.add_argument('--lr_decay', type=float, default=0.85, help='Learning rate decay')
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay for optimizer')
 parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate for the model')
-
-## ArcFace-specific parameters
-parser.add_argument('--arcface_scale', type=float, default=30.0, help='Scale for ArcFace loss')
-parser.add_argument('--arcface_margin', type=float, default=0.50, help='Margin for ArcFace loss')
 
 
 args = parser.parse_args()
@@ -91,27 +87,29 @@ def evaluate_and_compute_eer(trainer, loader):
 
 def load_loss_function(loss_name, **kwargs):
     try:
-        # Dynamically import the loss module and get the LossFunction class
-        loss_module = importlib.import_module(f'loss.{loss_name}')
-        LossFunction = getattr(loss_module, 'LossFunction')
+        # Normalize loss_name to lowercase for matching
+        loss_name_lower = loss_name.lower()
         
         # Define required parameters for specific loss functions
         loss_specific_params = {
-            'arcface': ['nOut', 'nClasses', 'scale', 'margin'],
             'generalizedcrossentropy': ['num_classes', 'q'],
             # Add other loss functions and their required parameters here
         }
         
-        # Normalize loss_name to lowercase for matching
-        loss_name_lower = loss_name.lower()
-        
         # Get the required parameters for the selected loss
         required_params = loss_specific_params.get(loss_name_lower, [])
+        
+        if not required_params:
+            raise ValueError(f"Loss function '{loss_name}' is not supported.")
         
         # Check if all required parameters are provided
         for param in required_params:
             if param not in kwargs:
                 raise ValueError(f"Missing required parameter '{param}' for {loss_name} loss.")
+        
+        # Dynamically import the loss module and get the LossFunction class
+        loss_module = importlib.import_module(f'loss.{loss_name}')
+        LossFunction = getattr(loss_module, 'LossFunction')
         
         # Extract only the required parameters
         loss_params = {param: kwargs[param] for param in required_params}
@@ -181,7 +179,6 @@ def main_worker(args):
         model="GhostFaceNetsV2", 
         trainfunc=LossFunction(num_classes=1230, q=args.gce_q), 
         num_classes=1230, 
-        nOut=1024,
         dropout=args.dropout
     ).cuda()
 
@@ -204,23 +201,12 @@ def main_worker(args):
     # Initialize GCE Loss for Linear Probing
     gce_loss = LossFunction(num_classes=1230, q=args.gce_q).cuda()
 
-    # Initialize GCE Loss for Linear Probing
-    gce_loss = LossFunction(num_classes=1230, q=args.gce_q).cuda()
-
     # Initialize Fine-Tune Loss based on the selected loss function
     if args.fine_tune_loss.lower() == "generalizedcrossentropy":
         fine_tune_loss = load_loss_function(
             args.fine_tune_loss,
             num_classes=1230,
             q=args.gce_q
-        ).cuda()
-    elif args.fine_tune_loss.lower() == "arcface":
-        fine_tune_loss = load_loss_function(
-            args.fine_tune_loss,
-            nOut=1024,           # Must match model's output feature dimension
-            nClasses=1230,       # Number of classes
-            scale=args.arcface_scale,
-            margin=args.arcface_margin
         ).cuda()
     else:
         raise ValueError(f"Unsupported fine_tune_loss: {args.fine_tune_loss}")

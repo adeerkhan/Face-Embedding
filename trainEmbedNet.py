@@ -43,6 +43,7 @@ parser.add_argument('--margin', type=float, default=0.05, help='Loss margin, onl
 parser.add_argument('--scale', type=float, default=15, help='Loss scale, only for some loss functions')
 parser.add_argument('--nPerClass', type=int, default=1, help='Number of images per class per batch, only for metric learning based losses')
 parser.add_argument('--nClasses', type=int, default=2882, help='Number of classes in the softmax layer, only for softmax-based losses')
+parser.add_argument('--gce_q', type=float, default=0.4, help='Hyperparameter q for Generalized Cross Entropy Loss')
 
 ## Load and save
 parser.add_argument('--initial_model', type=str, default="", help='Initial model weights, otherwise initialise with random weights')
@@ -93,7 +94,6 @@ def compute_eer(all_labels, all_scores):
 ## ===== ===== ===== ===== ===== ===== ===== =====
 ## Trainer script
 ## ===== ===== ===== ===== ===== ===== ===== =====
-
 def main_worker(args):
 
     logger = logging.getLogger(__name__)
@@ -193,6 +193,7 @@ def main_worker(args):
 
             logger.info("Epoch {:04d}, Val EER {:.2f}%".format(ep, EER * 100))
             trainer.saveParameters(args.save_path + "/epoch{:04d}.model".format(ep))
+
 
 # ## ===== ===== ===== ===== ===== ===== ===== =====
 # ## Main function
